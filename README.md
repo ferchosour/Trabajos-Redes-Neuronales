@@ -1,2 +1,2 @@
 # Trabajos-Redes-Neuronales
-Repositorio de Fernando para la clase de Redes Neronales Otoño 2025
+En este repositorio serán mostrados mis trabajos para la clase de Redes Neronales Otoño 2025.

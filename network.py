@@ -26,18 +26,20 @@ class CrossEntropyCost(object):
     # organizar el código y así llamarlos directamente desde esta clase
     def fn(a, y):
         #Regresa  el costo asociado con la salida 'a' y la salida deseada 'y'
-        epsilon = 1e-12
+        epsilon = 1e-12     # El epsilon recomendado para esta parte
         a = np.clip(a, epsilon, 1. - epsilon)  # evitar log(0)
         return np.sum(np.nan_to_num(-y*np.log(a) - (1-y)*np.log(1-a)))
 
     @staticmethod
     def delta(z, a, y):
         # Regresa el error delta de la capa de salida
-        return (a - y)
+        return a - y
 
 class Network(object):
 
-    def __init__(self, sizes):
+    # Aquí añadimos los valores recomendados de Adam para beta1, beta2 y epsilon
+    def __init__(self, sizes, cost=CrossEntropyCost,
+                 beta1=0.9, beta2=0.99, epsilon=1e-8):
         """The list ``sizes`` contains the number of neurons in the
         respective layers of the network.  For example, if the list
         was [2, 3, 1] then it would be a three-layer network, with the
@@ -55,14 +57,27 @@ class Network(object):
                        # for x, y in zip(sizes[:-1], sizes[1:])]
         # Para una mejor inicialización de pesos, vamos a usar la inicialización
         # de Xavier, pues ajusta la varianza de los pesos según el tamaño de la capa
-        self.biases = [np.zeros((y, 1)) for y in sizes[1:]]  # Iniciamos en ceros para
+        #self.biases = [np.zeros((y, 1)) for y in sizes[1:]]  # Iniciamos en ceros para
         # tener una mejor estabilidad de la función sigmoide y evitar ruido
         # innecesario al principio
-        self.weights = [np.random.randn(y, x) * np.sqrt(1 / x)
-                        for x, y in zip(sizes[:-1], sizes[1:])]  # La mejora de inicialización Xavier
+        #self.weights = [np.random.randn(y, x) * np.sqrt(1 / x)
+                        #for x, y in zip(sizes[:-1], sizes[1:])]  # La mejora de inicialización Xavier
         # Añadimos esta función para que nuestra clase "Network" sepa qué función
         # de costo tiene que usar (Cross Entropy)
         self.cost = cost
+        #Añadimos nuevos valores a nuestra clase Network para usar más adelante
+        self.default_weight_initializer()   # Añadimos esto para reemplazar la antigua inicialización
+        # y usar la inicialización Xavier
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.t = 0  #Pasos recomendados para Adam
+
+    def default_weight_initializer(self):
+        #Inicialización Xavier de una manera más eficiente
+        self.biases = [np.random.randn(y, 1) for y in self.sizes[1:]]
+        self.weights = [np.random.randn(y, x) / np.sqrt(x)
+                        for x, y in zip(self.sizes[:-1], self.sizes[1:])]
 
     def feedforward(self, a):
         """Return the output of the network if ``a`` is input."""
@@ -94,27 +109,87 @@ class Network(object):
                 training_data[k:k+mini_batch_size]
                 for k in range(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
-                self.update_mini_batch(mini_batch, eta)
+                # Acá estábamos usando un optimizador SGD simple, por lo que lo reemplazaremos
+                # por parámetros que ayudarán a nuestro nuevo optimizador Adam
+                    self.t += 1
+                    self.update_mini_batch_adam(mini_batch, eta,
+                                                self.beta1, self.beta2,
+                                                self.epsilon, self.t)
             if test_data:
                 print("Epoch {} : {} / {}".format(j,self.evaluate(test_data),n_test))
             else:
                 print("Epoch {} complete".format(j))
 
-    def update_mini_batch(self, mini_batch, eta):
-        """Update the network's weights and biases by applying
-        gradient descent using backpropagation to a single mini batch.
-        The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
-        is the learning rate."""
+
+# Esta parte no la vamos a usar ya, pues al implementar el nuevo optimizador, estaremos
+# usando otros parámetros
+    #def update_mini_batch(self, mini_batch, eta):
+        #"""Update the network's weights and biases by applying
+        #gradient descent using backpropagation to a single mini batch.
+        #The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
+        #is the learning rate."""
+        #nabla_b = [np.zeros(b.shape) for b in self.biases]
+        #nabla_w = [np.zeros(w.shape) for w in self.weights]
+        #for x, y in mini_batch:
+            #delta_nabla_b, delta_nabla_w = self.backprop(x, y)
+            #nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+            #nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+        #self.weights = [w-(eta/len(mini_batch))*nw
+                        #for w, nw in zip(self.weights, nabla_w)]
+        #self.biases = [b-(eta/len(mini_batch))*nb
+                       #for b, nb in zip(self.biases, nabla_b)]
+
+# Optimzador Adam
+    def update_mini_batch_adam(self, mini_batch, eta, beta1, beta2, epsilon, t):
+
+        # Vamos a inicializar momentos si es que no existen
+        if not hasattr(self, "m_w"): # No lo mencioné anteriormente cuando renombré los parámetros
+            # en ejemplo.py pero hasttr nos devuelve un true o un false, así que si no existen los
+            # momentos entrarán en juego estos nuevos, que es lo que pasará en esta ocasión
+            self.m_w = [np.zeros(w.shape) for w in self.weights]
+            self.v_w = [np.zeros(w.shape) for w in self.weights]
+            self.m_b = [np.zeros(b.shape) for b in self.biases]
+            self.v_b = [np.zeros(b.shape) for b in self.biases]
+
+        # Estos son los gradientes acumulados para los mini-batches
         nabla_b = [np.zeros(b.shape) for b in self.biases]
         nabla_w = [np.zeros(w.shape) for w in self.weights]
+
+        # Acá estamos realizando un algoritmo Backpropagation para cada muestra de mis mini-batches
+        # y así obtener  un entrenamiento más estable y eficiente
         for x, y in mini_batch:
             delta_nabla_b, delta_nabla_w = self.backprop(x, y)
-            nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
-            nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
-        self.weights = [w-(eta/len(mini_batch))*nw
-                        for w, nw in zip(self.weights, nabla_w)]
-        self.biases = [b-(eta/len(mini_batch))*nb
-                       for b, nb in zip(self.biases, nabla_b)]
+            nabla_b = [nb + dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+            nabla_w = [nw + dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+
+        # Aquí vamos a obtener el promedio del gradiente en el mini-batch, pues los
+        # usaremos más adelante
+        nabla_w = [nw / len(mini_batch) for nw in nabla_w]
+        nabla_b = [nb / len(mini_batch) for nb in nabla_b]
+
+        # Aquí iremos actualizando los parámetros y los momentos de Adam, estas son las fórmulas
+        # que vimos en clase
+        for i in range(len(self.weights)):
+            # Estas dos son la primera media (momento) para los gradientes que acelera
+            # la convergencia, tanto para los pesos como para los biases
+            self.m_w[i] = beta1 * self.m_w[i] + (1 - beta1) * nabla_w[i]
+            self.m_b[i] = beta1 * self.m_b[i] + (1 - beta1) * nabla_b[i]
+
+            # Estas otras dos son la segunda media (RMSProp) para los gradientes al cuadrado
+            # y así ajustar la tasa de aprendizaje en base a estos
+            self.v_w[i] = beta2 * self.v_w[i] + (1 - beta2) * (nabla_w[i] ** 2)
+            self.v_b[i] = beta2 * self.v_b[i] + (1 - beta2) * (nabla_b[i] ** 2)
+
+            # Aquí realizamos una corrección de sesgo (así evitamos que m y v estén
+            # "cerca de cero" en los primeros pasos, tal y como vimos en clase)
+            m_hat_w = self.m_w[i] / (1 - beta1 ** t)
+            v_hat_w = self.v_w[i] / (1 - beta2 ** t)
+            m_hat_b = self.m_b[i] / (1 - beta1 ** t)
+            v_hat_b = self.v_b[i] / (1 - beta2 ** t)
+
+            # En esta parte actualizamos parámetros para cada paso que realizamos con los mini-batches
+            self.weights[i] -= eta * m_hat_w / (np.sqrt(v_hat_w) + epsilon)
+            self.biases[i]  -= eta * m_hat_b / (np.sqrt(v_hat_b) + epsilon)
 
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the
@@ -170,9 +245,20 @@ class Network(object):
 
 #### Miscellaneous functions
 def sigmoid(z):
-    """The sigmoid function."""
-    return 1.0/(1.0+np.exp(-z))
+    #Acá obtenemos una sigmoide numéricamente estable, pues me ha marcado un error que
+    # indicaba que la función sigmoide era demasiado grande
+    #return np.where(z >= 0,
+                    #1.0 / (1.0 + np.exp(-z)),
+                    #np.exp(z) / (1.0 + np.exp(z)))  # Aquí le indicamos a la máquina que
+    # para valores positivos usamos una forma estándar de la sigmoide y para valores
+    # negativos usamos una forma alternativa
+    # La función anterior nos mostró todavía un overflow, así que limitaremos z a un rango,
+# el cuál será de [-500,500]
+    #Sigmoide clipada para evitar overflow
+    z = np.clip(z, -500, 500)
+    return 1.0 / (1.0 + np.exp(-z))
 
 def sigmoid_prime(z):
-    """Derivative of the sigmoid function."""
-    return sigmoid(z)*(1-sigmoid(z))
+    """Derivada de la sigmoide estable."""
+    s = sigmoid(z)
+    return s * (1 - s)

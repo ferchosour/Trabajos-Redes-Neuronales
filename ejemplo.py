@@ -7,14 +7,16 @@ training_data, validation_data , test_data = mnist_loader.load_data_wrapper()
 training_data = list(training_data)
 test_data = list(test_data)
 
-#net=network.Network([784,30,10])
+# Usamos estos parámetros para obtener el valor de t, pues antes nos botaba un
+# error donde no lo reconocía
+net=network.Network([784,30,10])
 
-#net.SGD( training_data, 15, 10, 0.1, test_data=test_data)
+net.SGD( training_data, epochs=30, mini_batch_size=50, eta=0.001, test_data=test_data)
 
-#archivo = open("red_prueba1.pkl",'wb')
-#pickle.dump(net,archivo)
-#archivo.close()
-#exit()
+archivo = open("red_prueba1.pkl",'wb')
+pickle.dump(net,archivo)
+archivo.close()
+exit()
 #leer el archivo
 
 archivo_lectura = open("red_prueba.pkl",'rb')
@@ -32,7 +34,7 @@ if not hasattr(net, "cost"):   # Pues el error que nos sale anteriormente
     # la anterior para no alterar más el código
 
 #Ahora tenemos que entrenar la red de nuevo
-net.SGD( training_data, 15, 50, 0.5, test_data=test_data)
+net.SGD( training_data, 30, 50, 0.001, test_data=test_data)
 
 archivo = open("red_prueba.pkl",'wb')
 pickle.dump(net,archivo)

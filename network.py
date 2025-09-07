@@ -50,10 +50,17 @@ class Network(object):
         ever used in computing the outputs from later layers."""
         self.num_layers = len(sizes)
         self.sizes = sizes
-        self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
-        self.weights = [np.random.randn(y, x)
-                        for x, y in zip(sizes[:-1], sizes[1:])]
-        #Añadimos esta función para que nuestra clase "Network" sepa qué función
+        #self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
+        #self.weights = [np.random.randn(y, x)
+                       # for x, y in zip(sizes[:-1], sizes[1:])]
+        # Para una mejor inicialización de pesos, vamos a usar la inicialización
+        # de Xavier, pues ajusta la varianza de los pesos según el tamaño de la capa
+        self.biases = [np.zeros((y, 1)) for y in sizes[1:]]  # Iniciamos en ceros para
+        # tener una mejor estabilidad de la función sigmoide y evitar ruido
+        # innecesario al principio
+        self.weights = [np.random.randn(y, x) * np.sqrt(1 / x)
+                        for x, y in zip(sizes[:-1], sizes[1:])]  # La mejora de inicialización Xavier
+        # Añadimos esta función para que nuestra clase "Network" sepa qué función
         # de costo tiene que usar (Cross Entropy)
         self.cost = cost
 
